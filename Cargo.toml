@@ -1,0 +1,10 @@
+[package]
+name = "ev3_controller"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ssh2 = "0.9"
+anyhow = "1"
+eframe = "0.27"
+egui = "0.27"
