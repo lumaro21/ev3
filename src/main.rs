@@ -2,17 +2,20 @@ mod connection;
 mod app;
 mod state;
 mod polling;
+mod editor;
 
 use std::sync::{Arc, Mutex};
 use app::Ev3App;
 use state::Ev3State;
+use connection::make_shared_conn;
 
 fn main() -> eframe::Result<()> {
     let shared_state = Arc::new(Mutex::new(Ev3State::default()));
+    let shared_conn  = make_shared_conn();
 
     polling::start_polling(
         shared_state.clone(),
-        "192.168.20.232".to_string(),
+        shared_conn.clone(),
         "robot".to_string(),
         "maker".to_string(),
     );
@@ -27,6 +30,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "EV3 Controller",
         options,
-        Box::new(move |_cc| Box::new(Ev3App::new(shared_state))),
+        Box::new(move |_cc| Box::new(Ev3App::new(shared_state, shared_conn))),
     )
 }
