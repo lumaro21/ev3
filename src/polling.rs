@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::thread;
 use std::sync::{Arc, Mutex};
-use crate::connection::{SharedConn, ensure_connected, make_shared_conn};
+use crate::connection::{SharedConn, ensure_connected};
 use crate::state::{Ev3State, Motor, MotorCommand, Sensor, SensorType};
 
 pub fn start_polling(
@@ -14,19 +14,16 @@ pub fn start_polling(
         let mut current_ip = state.lock().unwrap().ip.clone();
 
         loop {
-            // ¿Pidió reconexión con nueva IP?
             {
                 let mut s = state.lock().unwrap();
                 if s.reconnect_requested {
                     current_ip = s.ip.clone();
                     s.reconnect_requested = false;
                     s.connected = false;
-                    // Forzar reconexión limpiando la sesión actual
                     *shared_conn.lock().unwrap() = None;
                 }
             }
 
-            // Asegurar conexión (reutiliza si ya está viva)
             if !ensure_connected(&shared_conn, &current_ip, &user, &pass) {
                 if let Ok(mut s) = state.lock() {
                     s.connected = false;
@@ -38,32 +35,70 @@ pub fn start_polling(
                 continue;
             }
 
-            // Obtener la conexión
+            // Ejecutar comandos pendientes
+            let commands = {
+                let mut s = state.lock().unwrap();
+                std::mem::take(&mut s.pending_commands)
+            };
+
+            for cmd in &commands {
+                match cmd {
+                    MotorCommand::HttpSetSpeed { port, speed } => {
+                        send_http_motor(&current_ip, port, *speed);
+                    }
+                    MotorCommand::HttpStop { port } => {
+                        send_http_stop(&current_ip, port);
+                    }
+                    MotorCommand::SetSpeed { port, speed } => {
+                        let guard = shared_conn.lock().unwrap();
+                        if let Some(conn) = guard.as_ref() {
+                            if let Some(mid) = motor_id_for(port, &state) {
+                                let _ = conn.exec(&format!(
+                                    "echo {} > /sys/class/tacho-motor/{}/speed_sp", speed, mid
+                                ));
+                            }
+                        }
+                    }
+                    MotorCommand::Run { port } => {
+                        let guard = shared_conn.lock().unwrap();
+                        if let Some(conn) = guard.as_ref() {
+                            if let Some(mid) = motor_id_for(port, &state) {
+                                let _ = conn.exec(&format!(
+                                    "echo run-forever > /sys/class/tacho-motor/{}/command", mid
+                                ));
+                            }
+                        }
+                    }
+                    MotorCommand::Stop { port } => {
+                        let guard = shared_conn.lock().unwrap();
+                        if let Some(conn) = guard.as_ref() {
+                            if let Some(mid) = motor_id_for(port, &state) {
+                                let _ = conn.exec(&format!(
+                                    "echo stop > /sys/class/tacho-motor/{}/command", mid
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Leer estado por SSH
             let conn_guard = shared_conn.lock().unwrap();
             let conn = match conn_guard.as_ref() {
                 Some(c) => c,
                 None    => { drop(conn_guard); continue; }
             };
 
-            // Ejecutar comandos pendientes (motores) — reutilizando la sesión abierta
-            let commands = {
-                let mut s = state.lock().unwrap();
-                std::mem::take(&mut s.pending_commands)
-            };
-            for cmd in &commands {
-                apply_command(conn, cmd, &state);
-            }
-
-            // Leer motores
+            // Motores
             let mut motors = vec![];
             let expected   = ["outA", "outB", "outC", "outD"];
             let found_raw  = conn.exec("ls /sys/class/tacho-motor/ 2>/dev/null").unwrap_or_default();
             let mut found_ports = std::collections::HashSet::new();
 
             for motor_id in found_raw.split_whitespace() {
-                let base      = format!("/sys/class/tacho-motor/{}", motor_id);
-                let port_raw  = conn.exec(&format!("cat {}/address", base)).unwrap_or_default();
-                let port      = port_raw.split(':').last().unwrap_or(&port_raw).trim().to_string();
+                let base     = format!("/sys/class/tacho-motor/{}", motor_id);
+                let port_raw = conn.exec(&format!("cat {}/address", base)).unwrap_or_default();
+                let port     = port_raw.split(':').last().unwrap_or(&port_raw).trim().to_string();
                 let speed: i32 = conn.exec(&format!("cat {}/speed", base))
                     .unwrap_or_default().trim().parse().unwrap_or(0);
                 found_ports.insert(port.clone());
@@ -71,18 +106,19 @@ pub fn start_polling(
             }
             for p in &expected {
                 if !found_ports.contains(*p) {
-                    motors.push(Motor { port: p.to_string(), motor_id: String::new(), connected: false, speed: 0 });
+                    motors.push(Motor {
+                        port: p.to_string(), motor_id: String::new(),
+                        connected: false, speed: 0,
+                    });
                 }
             }
 
-            let mut alerts = vec![];
-            for m in &motors {
-                if !m.connected {
-                    alerts.push(format!("⚠ Motor {} desconectado", m.port));
-                }
-            }
+            let alerts: Vec<String> = motors.iter()
+                .filter(|m| !m.connected)
+                .map(|m| format!("⚠ Motor {} desconectado", m.port))
+                .collect();
 
-            // Leer sensores
+            // Sensores
             let mut sensors  = vec![];
             let sensor_raw   = conn.exec("ls /sys/class/lego-sensor/ 2>/dev/null").unwrap_or_default();
             for sensor_id in sensor_raw.split_whitespace() {
@@ -108,7 +144,7 @@ pub fn start_polling(
                 .exec("cat /sys/class/power_supply/lego-ev3-battery/voltage_now")
                 .unwrap_or_default().trim().parse::<f32>().unwrap_or(0.0) / 1_000_000.0;
 
-            drop(conn_guard); // liberar el lock antes de actualizar el estado
+            drop(conn_guard);
 
             if let Ok(mut s) = state.lock() {
                 s.connected       = true;
@@ -118,32 +154,49 @@ pub fn start_polling(
                 s.alerts          = alerts;
             }
 
-            thread::sleep(Duration::from_millis(300)); // polling más rápido: 300ms
+            thread::sleep(Duration::from_millis(300));
         }
     });
 }
 
-fn apply_command(conn: &crate::connection::Ev3Connection, cmd: &MotorCommand, state: &Arc<Mutex<Ev3State>>) {
-    let motor_id_for = |port: &str| -> Option<String> {
-        state.lock().ok().and_then(|s| {
-            s.motors.iter().find(|m| m.port == port && m.connected).map(|m| m.motor_id.clone())
-        })
-    };
-    match cmd {
-        MotorCommand::SetSpeed { port, speed } => {
-            if let Some(mid) = motor_id_for(port) {
-                let _ = conn.exec(&format!("echo {} > /sys/class/tacho-motor/{}/speed_sp", speed, mid));
-            }
-        }
-        MotorCommand::Run { port } => {
-            if let Some(mid) = motor_id_for(port) {
-                let _ = conn.exec(&format!("echo run-forever > /sys/class/tacho-motor/{}/command", mid));
-            }
-        }
-        MotorCommand::Stop { port } => {
-            if let Some(mid) = motor_id_for(port) {
-                let _ = conn.exec(&format!("echo stop > /sys/class/tacho-motor/{}/command", mid));
-            }
-        }
+// ─── HTTP motor control ───────────────────────────────────────────────────────
+
+fn port_to_motor_index(port: &str) -> Option<u8> {
+    match port {
+        "outB" => Some(0),
+        "outD" => Some(1),
+        _      => None,
     }
+}
+
+fn send_http_motor(ip: &str, port: &str, speed: i32) {
+    if let Some(idx) = port_to_motor_index(port) {
+        let url = format!("http://{}:8080/?cmd=motor&idx={}&speed={}", ip, idx, speed);
+        thread::spawn(move || {
+            let _ = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(500))
+                .build().unwrap()
+                .get(&url).send();
+        });
+    }
+}
+
+fn send_http_stop(ip: &str, port: &str) {
+    if let Some(idx) = port_to_motor_index(port) {
+        let url = format!("http://{}:8080/?cmd=stop&idx={}", ip, idx);
+        thread::spawn(move || {
+            let _ = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(500))
+                .build().unwrap()
+                .get(&url).send();
+        });
+    }
+}
+
+fn motor_id_for(port: &str, state: &Arc<Mutex<Ev3State>>) -> Option<String> {
+    state.lock().ok().and_then(|s| {
+        s.motors.iter()
+            .find(|m| m.port == port && m.connected)
+            .map(|m| m.motor_id.clone())
+    })
 }

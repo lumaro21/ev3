@@ -25,9 +25,15 @@ pub struct Motor {
 
 #[derive(Clone, Debug)]
 pub enum MotorCommand {
+    // Comandos SSH legacy (fallback)
     SetSpeed { port: String, speed: i32 },
     Run      { port: String },
     Stop     { port: String },
+
+    // Comandos HTTP — van directo al servidor en el EV3
+    // speed: -100..=100 (negativo = marcha atrás)
+    HttpSetSpeed { port: String, speed: i32 },
+    HttpStop     { port: String },
 }
 
 #[derive(Clone)]
@@ -53,7 +59,7 @@ impl Default for Ev3State {
             alerts: vec![],
             desired_speeds: std::collections::HashMap::new(),
             pending_commands: vec![],
-            ip: "192.168.10.15".to_string(),
+            ip: "192.168.20.232".to_string(),
             reconnect_requested: false,
         }
     }

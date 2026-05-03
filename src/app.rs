@@ -328,17 +328,30 @@ fn draw_output_ports(ui: &mut egui::Ui, state: &Ev3State, shared: &Arc<Mutex<Ev3
                             ui.label(RichText::new(format!("{}rpm", actual_speed)).color(Color32::from_rgb(80, 200, 100)).size(9.0));
                             let desired = shared.lock().unwrap().desired_speeds.get(port).copied().unwrap_or(0);
                             let mut desired_mut = desired;
-                            if ui.add(egui::Slider::new(&mut desired_mut, -1050..=1050).show_value(false).text("")).changed() {
+                            // Slider: -100..=100 (duty cycle HTTP)
+                            if ui.add(egui::Slider::new(&mut desired_mut, -100..=100).show_value(false).text("")).changed() {
                                 let mut s = shared.lock().unwrap();
                                 s.desired_speeds.insert(port.to_string(), desired_mut);
-                                s.pending_commands.push(MotorCommand::SetSpeed { port: port.to_string(), speed: desired_mut });
+                                // Enviar por HTTP — instantáneo
+                                s.pending_commands.push(MotorCommand::HttpSetSpeed {
+                                    port: port.to_string(),
+                                    speed: desired_mut,
+                                });
                             }
                             ui.horizontal(|ui| {
+                                // ▶ Run: manda la velocidad deseada actual por HTTP
                                 if ui.add(egui::Button::new(RichText::new("▶").color(Color32::from_rgb(80, 220, 120)).size(11.0)).fill(Color32::from_rgb(20, 50, 25)).min_size(Vec2::new(36.0, 18.0))).clicked() {
-                                    shared.lock().unwrap().pending_commands.push(MotorCommand::Run { port: port.to_string() });
+                                    let spd = shared.lock().unwrap().desired_speeds.get(port).copied().unwrap_or(50);
+                                    shared.lock().unwrap().pending_commands.push(MotorCommand::HttpSetSpeed {
+                                        port: port.to_string(),
+                                        speed: if spd == 0 { 50 } else { spd },
+                                    });
                                 }
+                                // ■ Stop: para el motor por HTTP
                                 if ui.add(egui::Button::new(RichText::new("■").color(Color32::from_rgb(220, 80, 80)).size(11.0)).fill(Color32::from_rgb(50, 20, 20)).min_size(Vec2::new(36.0, 18.0))).clicked() {
-                                    shared.lock().unwrap().pending_commands.push(MotorCommand::Stop { port: port.to_string() });
+                                    shared.lock().unwrap().pending_commands.push(MotorCommand::HttpStop {
+                                        port: port.to_string(),
+                                    });
                                 }
                             });
                         } else {
