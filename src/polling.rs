@@ -31,7 +31,7 @@ pub fn start_polling(
                     s.sensors   = vec![];
                     s.alerts    = vec![];
                 }
-                thread::sleep(Duration::from_millis(1500));
+                thread::sleep(Duration::from_millis(300));
                 continue;
             }
 
@@ -154,7 +154,8 @@ pub fn start_polling(
                 s.alerts          = alerts;
             }
 
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(3000));
+
         }
     });
 }
@@ -170,27 +171,24 @@ fn port_to_motor_index(port: &str) -> Option<u8> {
 }
 
 fn send_http_motor(ip: &str, port: &str, speed: i32) {
-    if let Some(idx) = port_to_motor_index(port) {
-        let url = format!("http://{}:8080/?cmd=motor&idx={}&speed={}", ip, idx, speed);
-        thread::spawn(move || {
-            let _ = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_millis(500))
-                .build().unwrap()
-                .get(&url).send();
-        });
-    }
+    let url = format!("http://{}:8080/?cmd=motor&port={}&speed={}", ip, port, speed);
+    let url_owned = url.clone();
+    thread::spawn(move || {
+        let _ = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(500))
+            .build().unwrap()
+            .get(&url_owned).send();
+    });
 }
 
 fn send_http_stop(ip: &str, port: &str) {
-    if let Some(idx) = port_to_motor_index(port) {
-        let url = format!("http://{}:8080/?cmd=stop&idx={}", ip, idx);
-        thread::spawn(move || {
-            let _ = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_millis(500))
-                .build().unwrap()
-                .get(&url).send();
-        });
-    }
+    let url = format!("http://{}:8080/?cmd=stop&port={}", ip, port);
+    thread::spawn(move || {
+        let _ = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(500))
+            .build().unwrap()
+            .get(&url).send();
+    });
 }
 
 fn motor_id_for(port: &str, state: &Arc<Mutex<Ev3State>>) -> Option<String> {
