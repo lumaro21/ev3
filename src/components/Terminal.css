@@ -1,0 +1,157 @@
+.terminal-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: calc(100vh - 40px);
+  gap: 0;
+}
+
+/* Editor panel */
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.lang-tabs { display: flex; gap: 2px; }
+
+.lang-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.lang-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.lang-tab.active {
+  color: #4fc1ff;
+  background: #1e3a5a;
+  border-color: #1e5a8a;
+}
+
+.filename-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  width: 120px;
+}
+.filename-input:focus { border-color: var(--accent); }
+
+.code-editor {
+  flex: 1;
+  background: var(--bg-primary);
+  color: #d4d4d4;
+  border: none;
+  outline: none;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  tab-size: 4;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+
+/* Console panel */
+.console-panel {
+  display: flex;
+  flex-direction: column;
+  background: #0d0d0d;
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.console-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #444;
+  transition: background 0.3s;
+}
+.console-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.console-running-label { color: var(--success); }
+
+.console-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.console-output pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #4ec94e;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* Bash input */
+.bash-input-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.bash-prompt {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--success);
+  white-space: nowrap;
+}
+
+.bash-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d4d4d4;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
