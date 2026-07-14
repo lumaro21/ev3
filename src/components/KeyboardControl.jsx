@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+// 1. Eliminamos el invoke de Tauri y traemos nuestro contexto
+import { useRobot } from "../context/RobotContext";
 import "./KeyboardControl.css";
 
 const PORTS = ["outA", "outB", "outC", "outD"];
 
 export default function KeyboardControl({ status }) {
+  // 2. Traemos la función de control
+  const { sendMotorCommand } = useRobot();
+
   const [expanded, setExpanded]   = useState(false);
   const [leftPort, setLeftPort]   = useState("outA");
   const [rightPort, setRightPort] = useState("outD");
@@ -14,6 +18,7 @@ export default function KeyboardControl({ status }) {
   const motors = status?.motors ?? [];
   const connectedPorts = motors.filter(m => m.connected).map(m => m.port);
 
+  // 3. Modificamos sendMove para usar sendMotorCommand
   const sendMove = useCallback((keys) => {
     let leftSpeed  = 0;
     let rightSpeed = 0;
@@ -23,14 +28,15 @@ export default function KeyboardControl({ status }) {
     if (keys.has("a")) { leftSpeed  -= baseSpeed; rightSpeed += baseSpeed; }
     if (keys.has("d")) { leftSpeed  += baseSpeed; rightSpeed -= baseSpeed; }
 
+    // Ya no usamos invoke, usamos la función de nuestro "cerebro"
     if (leftSpeed === 0 && rightSpeed === 0) {
-      invoke("stop_motor",  { port: leftPort });
-      invoke("stop_motor",  { port: rightPort });
+      sendMotorCommand(leftPort, 0);
+      sendMotorCommand(rightPort, 0);
     } else {
-      invoke("set_motor_speed", { port: leftPort,  speed: leftSpeed  });
-      invoke("set_motor_speed", { port: rightPort, speed: rightSpeed });
+      sendMotorCommand(leftPort, leftSpeed);
+      sendMotorCommand(rightPort, rightSpeed);
     }
-  }, [leftPort, rightPort, baseSpeed]);
+  }, [leftPort, rightPort, baseSpeed, sendMotorCommand]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -39,8 +45,9 @@ export default function KeyboardControl({ status }) {
       e.preventDefault();
 
       if (key === " ") {
-        invoke("stop_motor", { port: leftPort });
-        invoke("stop_motor", { port: rightPort });
+        // Frenado de emergencia usando el contexto
+        sendMotorCommand(leftPort, 0);
+        sendMotorCommand(rightPort, 0);
         setActiveKeys(new Set());
         return;
       }
@@ -70,7 +77,7 @@ export default function KeyboardControl({ status }) {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup",   handleKeyUp);
     };
-  }, [leftPort, rightPort, baseSpeed, sendMove]);
+  }, [leftPort, rightPort, baseSpeed, sendMove, sendMotorCommand]);
 
   return (
     <div className="kbd-panel">
@@ -102,7 +109,7 @@ export default function KeyboardControl({ status }) {
                   <option key={p} value={p}>
                     {p.replace("out","")} {connectedPorts.includes(p) ? "✓" : "—"}
                   </option>
-                ))}
+                 ))}
               </select>
             </div>
             <div className="kbd-config-row">

@@ -223,13 +223,15 @@ pub fn save_file(
 }
 
 /// Verifica si un proceso sigue corriendo en el EV3.
-#[tauri::command]
+#[tauri::command] 
+#[allow(dead_code)]
 pub fn check_pid(pid: u32, state: State<AppState>) -> bool {
     let guard = state.conn.lock().unwrap();
     match guard.as_ref() {
         Some(conn) => {
             let result = conn
                 .exec(&format!("kill -0 {} 2>/dev/null && echo yes || echo no", pid))
+  
                 .unwrap_or_else(|_| "no".to_string());
             result.trim() == "yes"
         }

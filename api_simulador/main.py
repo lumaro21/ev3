@@ -2,7 +2,7 @@ import os
 import signal
 import uvicorn
 from fastapi import FastAPI
-from ev3dev2.motor import LargeMotor, OUTPUT_B, OUTPUT_D
+from ev3dev2.motor import LargeMotor, OUTPUT_B, OUTPUT_D # type: ignore
 
 app = FastAPI()
 

@@ -1,4 +1,5 @@
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum SensorType {
     Touch,
     Color,
@@ -23,7 +24,9 @@ pub struct Motor {
     pub speed: i32,
 }
 
+
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum MotorCommand {
     // Comandos SSH legacy (fallback)
     SetSpeed { port: String, speed: i32 },
@@ -37,6 +40,7 @@ pub enum MotorCommand {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Ev3State {
     pub connected: bool,
     pub motors: Vec<Motor>,

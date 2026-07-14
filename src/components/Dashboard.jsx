@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import MotorPort from "./MotorPort";
 import SensorPort from "./SensorPort";
@@ -12,11 +11,18 @@ export default function Dashboard({ status }) {
   const ports   = ["outA", "outB", "outC", "outD"];
   const sensors = ["in1",  "in2",  "in3",  "in4"];
 
+  // La función ya no llama a Tauri, solo cierra el input visualmente
   function applyIp() {
     if (ipInput.trim()) {
-      invoke("set_ip", { ip: ipInput.trim() });
+      console.log("[Mock Red] IP simulada cambiada a:", ipInput.trim());
+      // Aquí en el futuro enviaríamos la IP al contexto si fuera necesario
     }
     setEditingIp(false);
+  }
+
+  // Simulamos la reconexión
+  function handleReconnect() {
+    console.log("[Mock Red] Solicitando reconexión al orquestador...");
   }
 
   return (
@@ -48,7 +54,8 @@ export default function Dashboard({ status }) {
         </div>
         <div className="status-right">
           <span className="battery">🔋 {status?.battery?.toFixed(2) ?? "—"}V</span>
-          <button className="btn" onClick={() => invoke("reconnect")}>Reconectar</button>
+          {/* Botón desconectado de Tauri */}
+          <button className="btn" onClick={handleReconnect}>Reconectar</button>
         </div>
       </div>
 

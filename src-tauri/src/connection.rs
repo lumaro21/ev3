@@ -36,7 +36,7 @@ impl Ev3Connection {
         channel.wait_close()?;
         Ok(output.trim().to_string())
     }
-
+    #[allow(dead_code)]
     pub fn read_file(&self, path: &str) -> anyhow::Result<String> {
         self.exec(&format!("cat {}", path))
     }
@@ -85,6 +85,7 @@ pub fn ensure_connected(conn: &SharedConn, ip: &str, user: &str, pass: &str) -> 
 
 /// Ejecuta un comando usando la conexión compartida.
 /// Si falla por conexión caída, limpia para forzar reconexión en el próximo ciclo.
+#[allow(dead_code)]
 pub fn exec_shared(conn: &SharedConn, cmd: &str) -> anyhow::Result<String> {
     let guard = conn.lock().unwrap();
     match guard.as_ref() {
@@ -95,7 +96,7 @@ pub fn exec_shared(conn: &SharedConn, cmd: &str) -> anyhow::Result<String> {
         None => Err(anyhow::anyhow!("Sin conexión")),
     }
 }
-
+#[allow(dead_code)]
 pub fn write_file_shared(conn: &SharedConn, path: &str, content: &str) -> anyhow::Result<()> {
     let guard = conn.lock().unwrap();
     match guard.as_ref() {

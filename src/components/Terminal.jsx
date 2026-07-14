@@ -1,9 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useState, useRef, useEffect } from "react";
 import "./Terminal.css";
 
 export default function Terminal() {
-  const [code, setCode]       = useState("# Escribe tu programa aqui\nprint('Hola desde el EV3!')\n");
+  const [code, setCode]       = useState("# Escribe tu programa aqui\nprint('Hola desde el simulador web!')\n");
   const [lang, setLang]       = useState("python");
   const [filename, setFilename] = useState("programa.py");
   const [dir, setDir]         = useState("/home/robot");
@@ -18,19 +17,27 @@ export default function Terminal() {
   const consoleRef            = useRef(null);
   const inputRef              = useRef(null);
 
+  // Auto-scroll de la consola
   useEffect(() => {
     if (consoleRef.current) {
       consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
     }
   }, [output]);
 
-  // Polling de output cuando hay programa corriendo
+  // Simulador de polling de output
   useEffect(() => {
     if (!running || !pid) return;
-    const interval = setInterval(async () => {
-      const out = await invoke("get_program_output");
-      setOutput(`PID: ${pid}\n${out}`);
-    }, 300);
+    const interval = setInterval(() => {
+      setOutput(prev => {
+        // Detener la simulación después de un rato
+        if (prev.length > 300) {
+           setRunning(false);
+           setPid(null);
+           return prev + "\n[Mock] Proceso finalizado.\n";
+        }
+        return prev + "...\n";
+      });
+    }, 1000);
     return () => clearInterval(interval);
   }, [running, pid]);
 
@@ -40,36 +47,32 @@ export default function Terminal() {
     setFilename(base + (l === "python" ? ".py" : ".sh"));
   }
 
-  async function handleRun() {
+  function handleRun() {
     if (running) return;
     setRunning(true);
-    setOutput("Subiendo archivo...\n");
-    const result = await invoke("run_code", { code, filename, dir, lang });
-    const pidNum = parseInt(result.trim());
-    if (!isNaN(pidNum)) {
-      setPid(pidNum);
-      setOutput(`PID: ${pidNum}\nEjecutando...\n`);
-    } else {
-      setOutput(result);
-      setRunning(false);
-    }
+    setOutput("Subiendo archivo simulado...\n");
+    
+    // Simulación de respuesta de Tauri
+    setTimeout(() => {
+      const mockPid = Math.floor(Math.random() * 10000) + 1000;
+      setPid(mockPid);
+      setOutput(prev => prev + `PID: ${mockPid}\nEjecutando (Simulación)...\n${code}\n`);
+    }, 600);
   }
 
-  async function handleStop() {
+  function handleStop() {
     if (pid) {
-      await invoke("kill_program", { pid });
-      setOutput(prev => prev + "\nDetenido por el usuario\n");
+      setOutput(prev => prev + `\n[Mock] Matando proceso PID ${pid}...\nDetenido por el usuario\n`);
     }
     setRunning(false);
     setPid(null);
   }
 
-  async function handleSave() {
-    const result = await invoke("save_file", { content: code, filename, dir });
-    setOutput(result);
+  function handleSave() {
+    setOutput(prev => prev + `\n[Mock] Archivo ${filename} guardado virtualmente en ${dir}.\n`);
   }
 
-  async function handleBashSubmit() {
+  function handleBashSubmit() {
     const cmd = bashInput.trim();
     if (!cmd) return;
 
@@ -83,24 +86,36 @@ export default function Terminal() {
     setHistIdx(null);
     setBashInput("");
 
-    // cd especial
+    // cd especial simulado
     if (cmd.startsWith("cd")) {
       const target = cmd.replace("cd", "").trim() || "/home/robot";
       const newDir = target.startsWith("/") ? target : `${cwd}/${target}`;
-      const resolved = await invoke("run_bash", { cmd: `cd ${newDir} && pwd`, cwd });
-      const clean = resolved.trim();
-      if (!clean.startsWith("bash:") && !clean.includes("No such")) {
-        setCwd(clean);
-        setOutput(prev => prev + `\n${cwd}$ ${cmd}\n${clean}\n`);
-      } else {
-        setOutput(prev => prev + `\n${cwd}$ ${cmd}\n${clean}\n`);
-      }
+      
+      // Limpiamos rutas relativas simuladas
+      const cleanPath = newDir.replace(/\/+/g, "/").replace(/\/$/, "");
+      setCwd(cleanPath);
+      setOutput(prev => prev + `\n${cwd}$ ${cmd}\n`);
       return;
     }
 
+    // Comandos bash simulados
     setOutput(prev => prev + `\n${cwd}$ ${cmd}\n`);
-    const result = await invoke("run_bash", { cmd, cwd });
-    setOutput(prev => prev + (result || "(sin salida)") + "\n");
+    
+    setTimeout(() => {
+        let result = "";
+        if (cmd === "ls") {
+            result = "programa.py  robot.sh  datos.json";
+        } else if (cmd === "pwd") {
+            result = cwd;
+        } else if (cmd === "whoami") {
+            result = "robot";
+        } else if (cmd.startsWith("echo")) {
+            result = cmd.replace("echo", "").trim();
+        } else {
+            result = `bash: ${cmd}: orden no encontrada (simulador activo)`;
+        }
+        setOutput(prev => prev + result + "\n");
+    }, 200);
   }
 
   function handleKeyDown(e) {
@@ -187,7 +202,7 @@ export default function Terminal() {
       <div className="console-panel">
         <div className="console-header">
           <span className={`console-dot ${running ? "running" : ""}`} />
-          Consola {running && <span className="console-running-label">— ejecutando...</span>}
+          Consola {running && <span className="console-running-label">— ejecutando (simulado)...</span>}
         </div>
 
         <div className="console-output" ref={consoleRef}>

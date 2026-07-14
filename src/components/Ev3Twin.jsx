@@ -24,8 +24,7 @@ function Floor({ offsetX = 0, offsetZ = 0 }) {
 
 // ─── Rueda ────────────────────────────────────────────────────────────────────
 
-// DESPUÉS
-function Wheel({ position, speed = 0 }) {
+function Wheel({ position, speed = 0, side }) {
   const spinRef = useRef();
 
   useFrame((_, delta) => {
@@ -66,6 +65,7 @@ function Wheel({ position, speed = 0 }) {
     </group>
   );
 }
+
 // ─── Rueda loca ───────────────────────────────────────────────────────────────
 
 function CasterWheel({ position }) {
@@ -429,7 +429,7 @@ function Ev3Body({ status }) {
 
 // ─── Robot completo ───────────────────────────────────────────────────────────
 
-function Ev3Robot({ status, position, rotation }) {
+function Ev3Robot({ status }) {
   const robotRef  = useRef();
   const motors    = status?.motors  ?? [];
   const sensors   = status?.sensors ?? [];
@@ -455,7 +455,7 @@ function Ev3Robot({ status, position, rotation }) {
   });
 
   return (
-    <group position={[position.x, 0, position.z]} rotation={[0, rotation, 0]}>
+    <group>
       <group ref={robotRef}>
         {/* Chasis */}
         <group position={[0, -2.2, 0]}>
@@ -510,10 +510,12 @@ function Ev3Robot({ status, position, rotation }) {
 // ─── Escena ───────────────────────────────────────────────────────────────────
 
 function Scene({ status }) {
-  const posRef = useRef({ x: 0, z: 0 });
+  // 1. Usamos refs puras para la matemática (esto no causa re-renders de React)
+  const posRef = useRef(new THREE.Vector3(0, 0, 0));
   const rotRef = useRef(0);
-  const [pos, setPos] = useState({ x: 0, z: 0 });
-  const [rot, setRot] = useState(0);
+  
+  // 2. Ref para controlar la malla del robot directamente
+  const groupRef = useRef();
 
   const motors = status?.motors ?? [];
   const motorB = motors.find(m => m.port === "outB");
@@ -522,6 +524,7 @@ function Scene({ status }) {
   const speedD = (motorD?.connected ? motorD.speed : 0) / 1000;
 
   useFrame((state, delta) => {
+    // 3. Calculamos la física
     const linear  = (speedB + speedD) / 2;
     const angular = (speedD - speedB) * 1.5;
 
@@ -529,10 +532,13 @@ function Scene({ status }) {
     posRef.current.x += Math.sin(rotRef.current) * linear * delta * 8;
     posRef.current.z += Math.cos(rotRef.current) * linear * delta * 8;
 
-    setPos({ ...posRef.current });
-    setRot(rotRef.current);
+    // 4. Aplicamos la matemática directamente al objeto 3D saltándonos el ciclo de React
+    if (groupRef.current) {
+        groupRef.current.position.copy(posRef.current);
+        groupRef.current.rotation.y = rotRef.current;
+    }
 
-    // Cámara sigue al robot
+    // 5. La cámara sigue las coordenadas matemáticas fluidamente
     const behind = new THREE.Vector3(
       posRef.current.x + Math.sin(rotRef.current) * 8,
       5,
@@ -544,7 +550,6 @@ function Scene({ status }) {
 
   return (
     <>
-      {/* Iluminación mejorada */}
       <ambientLight intensity={0.9} />
       <directionalLight position={[6, 12, 6]} intensity={2.5} castShadow
         shadow-mapSize={[2048, 2048]}
@@ -560,8 +565,13 @@ function Scene({ status }) {
       <pointLight position={[-4, 4, 4]} intensity={0.8} color="#88aaff" />
       <pointLight position={[4, 4, 4]}  intensity={0.8} color="#ffddaa" />
 
-      <Floor offsetX={posRef.current.x} offsetZ={posRef.current.z} />
-      <Ev3Robot status={status} position={pos} rotation={rot} />
+      {/* El piso estático. Ahora el robot es el que se moverá a través del mundo */}
+      <Floor offsetX={0} offsetZ={0} />
+      
+      {/* Envolvemos el robot en el grupo que controlamos matemáticamente */}
+      <group ref={groupRef}>
+         <Ev3Robot status={status} />
+      </group>
     </>
   );
 }

@@ -1,25 +1,41 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+// 1. Importamos el contexto
+import { useRobot } from "../context/RobotContext";
 import "./Port.css";
 
 export default function MotorPort({ port, motor }) {
+  // 2. Traemos la función de nuestro cerebro simulado
+  const { sendMotorCommand } = useRobot(); 
+  
   const connected = motor?.connected ?? false;
-  const [speed, setSpeed] = useState(0);
+  
+  // 3. Inicializamos con la velocidad del motor si existe, o 0
+  const [speed, setSpeed] = useState(motor?.speed || 0);
+
+  // 4. Sincronizamos el slider si la velocidad cambia mientras estamos en otra pestaña
+  useEffect(() => {
+    if (motor?.speed !== undefined) {
+      setSpeed(motor.speed);
+    }
+  }, [motor?.speed]);
 
   function handleSlider(val) {
     setSpeed(val);
-    invoke("set_motor_speed", { port, speed: parseInt(val) });
+    // Reemplazamos invoke por la función del contexto
+    sendMotorCommand(port, parseInt(val));
   }
 
   function handleRun() {
     const s = speed === 0 ? 50 : speed;
     setSpeed(s);
-    invoke("set_motor_speed", { port, speed: s });
+    // Reemplazamos invoke por la función del contexto
+    sendMotorCommand(port, s);
   }
 
   function handleStop() {
     setSpeed(0);
-    invoke("stop_motor", { port });
+    // Reemplazamos invoke por la función del contexto enviando velocidad 0
+    sendMotorCommand(port, 0);
   }
 
   const label = port.replace("out", "");
