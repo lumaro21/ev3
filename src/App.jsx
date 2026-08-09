@@ -11,24 +11,27 @@ function App() {
   // 2. Extraemos la telemetría de nuestro "cerebro falso"
   const { telemetry } = useRobot();
 
-  // 3. Adaptamos los datos simulados al formato que tu aplicación original espera (arrays)
+  // 3. Adaptamos la telemetría al formato que tu aplicación original espera (arrays).
+  //    Los sensores desconectados se omiten: Dashboard y Gemelo 3D los buscan con
+  //    find() y pintan "vacío" cuando no están.
   const status = {
-    connected: true, // Simulado como siempre conectado
-    ip: "192.168.1.100", // IP simulada
+    connected: telemetry.connected,
+    ip: telemetry.ip,
     battery: telemetry.battery,
-    alerts: [],
+    alerts: telemetry.alerts,
     motors: ["A", "B", "C", "D"].map(p => ({
       port: `out${p}`,
-      connected: true, // Simulamos que todos están conectados
+      connected: telemetry.motors[p]?.connected ?? false,
       speed: telemetry.motors[p]?.speed || 0,
       position: telemetry.motors[p]?.position || 0
     })),
-    sensors: ["1", "2", "3", "4"].map(p => ({
-      port: `in${p}`,
-      connected: telemetry.sensors[p]?.type !== "none",
-      type: telemetry.sensors[p]?.type || "none",
-      value: telemetry.sensors[p]?.value || 0
-    }))
+    sensors: ["1", "2", "3", "4"]
+      .filter(p => telemetry.sensors[p]?.type && telemetry.sensors[p].type !== "none")
+      .map(p => ({
+        port: `in${p}`,
+        sensor_type: telemetry.sensors[p].type,
+        value: telemetry.sensors[p].value || 0
+      }))
   };
 
   return (

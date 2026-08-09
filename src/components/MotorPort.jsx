@@ -8,16 +8,16 @@ export default function MotorPort({ port, motor }) {
   const { sendMotorCommand } = useRobot(); 
   
   const connected = motor?.connected ?? false;
-  
-  // 3. Inicializamos con la velocidad del motor si existe, o 0
-  const [speed, setSpeed] = useState(motor?.speed || 0);
 
-  // 4. Sincronizamos el slider si la velocidad cambia mientras estamos en otra pestaña
+  // 3. El slider es la CONSIGNA en % (-100..100). No se puede inicializar ni
+  //    sincronizar con motor.speed, que es la medida real en rpm: meter 700 rpm
+  //    en un control de -100..100 lo satura y muestra "+700%".
+  const [speed, setSpeed] = useState(0);
+
+  // 4. Al desconectarse el motor la consigna deja de ser válida
   useEffect(() => {
-    if (motor?.speed !== undefined) {
-      setSpeed(motor.speed);
-    }
-  }, [motor?.speed]);
+    if (!connected) setSpeed(0);
+  }, [connected]);
 
   function handleSlider(val) {
     setSpeed(val);
