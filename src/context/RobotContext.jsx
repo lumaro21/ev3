@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 
 const API_BASE = 'http://localhost:8000';
@@ -18,6 +17,10 @@ const RobotContext = createContext();
 export const useRobot = () => useContext(RobotContext);
 
 export const RobotProvider = ({ children }) => {
+    // 1. NUEVOS ESTADOS DE CONFIGURACIÓN
+    const [connectionMode, setConnectionMode] = useState('simulated');
+    const [targetIp, setTargetIp] = useState('127.0.0.1');
+
     // Iniciamos con valores en 0 mientras esperamos la respuesta del servidor
     const [telemetry, setTelemetry] = useState({
         connected: false,
@@ -28,7 +31,25 @@ export const RobotProvider = ({ children }) => {
         sensors: emptySensors()
     });
 
-    // 1. POLLING: Leer los datos de Python cada 400ms
+    // 2. FUNCIÓN PARA ACTUALIZAR LA IP Y EL MODO EN EL BACKEND
+    const updateConnectionConfig = useCallback(async (newMode, newIp) => {
+        try {
+            const response = await fetch(`${API_BASE}/api/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: newMode, ip: newIp })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            setConnectionMode(newMode);
+            setTargetIp(newIp);
+            console.log(`✅ Configuración actualizada en backend: Modo ${newMode}, IP: ${newIp}`);
+        } catch (error) {
+            console.error('❌ Error al actualizar la configuración:', error);
+        }
+    }, []);
+
+    // 3. POLLING: Leer los datos de Python cada 400ms
     useEffect(() => {
         let cancelled = false;
 
@@ -50,8 +71,6 @@ export const RobotProvider = ({ children }) => {
 
             setTelemetry(prev => {
                 // Adaptamos el formato de Python al que espera el Dashboard y el Gemelo 3D.
-                // La posición no la reporta el robot, así que la conservamos y la integra
-                // el bucle de física de abajo.
                 const motors = emptyMotors();
                 MOTOR_KEYS.forEach(k => { motors[k].position = prev.motors[k]?.position ?? 0; });
 
@@ -69,8 +88,6 @@ export const RobotProvider = ({ children }) => {
                 (Array.isArray(data.sensors) ? data.sensors : []).forEach(s => {
                     const key = String(s.port ?? '').replace('in', '');
                     if (!sensors[key]) return;
-                    // Conservamos el tipo tal cual ("Touch", "Ultrasonic"...) porque es la
-                    // clave que usan SensorPort y el Gemelo 3D para elegir cómo pintarlo.
                     sensors[key] = { type: s.sensor_type ?? 'none', value: s.value ?? 0 };
                 });
 
@@ -90,8 +107,7 @@ export const RobotProvider = ({ children }) => {
         return () => { cancelled = true; clearInterval(interval); };
     }, []);
 
-    // Integración de la posición angular: el robot no reporta encoders, así que
-    // acumulamos la velocidad para que el Gemelo 3D siga girando.
+    // Integración de la posición angular (física simulada)
     useEffect(() => {
         const physicsInterval = setInterval(() => {
             setTelemetry(prev => {
@@ -105,7 +121,7 @@ export const RobotProvider = ({ children }) => {
         return () => clearInterval(physicsInterval);
     }, []);
 
-    // 2. ENVIAR COMANDOS: Mandar las órdenes a Python
+    // 4. ENVIAR COMANDOS: Mandar las órdenes a Python
     const sendMotorCommand = useCallback(async (port, speed) => {
         const apiPort = `out${String(port).replace('out', '').toUpperCase()}`;
 
@@ -137,7 +153,15 @@ export const RobotProvider = ({ children }) => {
     }, []);
 
     return (
-        <RobotContext.Provider value={{ telemetry, sendMotorCommand, stopAllMotors }}>
+        <RobotContext.Provider value={{ 
+            telemetry, 
+            sendMotorCommand, 
+            stopAllMotors,
+            // Exportamos las nuevas herramientas para que Dashboard las use
+            connectionMode,
+            targetIp,
+            updateConnectionConfig
+        }}>
             {children}
         </RobotContext.Provider>
     );

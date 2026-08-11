@@ -19,7 +19,7 @@ Tres piezas, cada una en su propio puerto:
 |---|---|---|---|
 | Frontend | [`src/`](src/) | 1420 | Interfaz React. Hace polling cada 400 ms a `/api/status` y envía comandos a `/api/motor`. |
 | Puente HTTP | [`ev3_backend/ev3_bridge.py`](ev3_backend/ev3_bridge.py) | 8000 | Proxy con CORS. Normaliza la telemetría del robot al formato que consume el frontend y degrada con elegancia si el robot no responde. |
-| Servidor del robot | [`api_simulador/main.py`](api_simulador/main.py) | 8080 | Corre **dentro** del ladrillo. Mueve los motores con `ev3dev2` y lee sensores y batería del sysfs de ev3dev. |
+| Servidor del robot | [`api_simulador/main.py`](api_simulador/main.py) | 8080 | Corre **dentro** del ladrillo. Mueve los motores con `ev3dev2` y lee sensores y batería del sysfs de ev3dev. Solo biblioteca estándar: no necesita instalar nada en el EV3. |
 | Simulador | [`tools/fake_ev3.py`](tools/fake_ev3.py) | 8080 | Sustituye al ladrillo durante el desarrollo. Ver más abajo. |
 
 `src-tauri/` contiene la implementación original de escritorio en Rust + Tauri.
@@ -34,6 +34,11 @@ Es código heredado: el frontend ya no la usa.
 npm install
 pip install fastapi uvicorn requests
 ```
+
+En el **ladrillo EV3 no hay que instalar nada**: su servidor usa solo la
+biblioteca estándar de Python. FastAPI no es una opción ahí, porque exige
+Python 3.7+ (ev3dev-stretch trae 3.5) y pydantic no publica wheels para el ARM
+del EV3.
 
 ## Entorno de Desarrollo Local (Simulado)
 
@@ -101,23 +106,47 @@ dashboard debe pasar a "Sin conexión" sin errores en consola.
 
 ## Uso con el robot físico
 
-1. Copia [`api_simulador/main.py`](api_simulador/main.py) al ladrillo (que debe
-   tener [ev3dev](https://www.ev3dev.org/) instalado) y ejecútalo allí:
+El ladrillo debe tener [ev3dev](https://www.ev3dev.org/) y estar en **la misma
+subred** que el PC. Comprueba la IP en el EV3 (*Wireless and Networks* → tu red)
+y con `ipconfig` en el PC: los tres primeros grupos deben coincidir.
+
+1. Copia el servidor al ladrillo y arráncalo (usuario y contraseña por defecto
+   de ev3dev: `robot` / `maker`):
 
    ```bash
-   python3 main.py     # escucha en el puerto 8080
+   scp api_simulador/main.py robot@<IP-DEL-EV3>:/home/robot/
+   ssh robot@<IP-DEL-EV3> "python3 /home/robot/main.py"
    ```
 
-2. En el PC, arranca el puente apuntando a la IP del robot:
+   Debe imprimir `EV3 escuchando en http://0.0.0.0:8080`. Déjalo abierto.
+
+2. En el PC, arranca el puente y el frontend:
 
    ```bash
-   EV3_IP=192.168.1.50 python ev3_backend/ev3_bridge.py
+   python ev3_backend/ev3_bridge.py
+   npm run dev
    ```
 
-   Sin `EV3_IP`, el puente usa el valor por defecto definido en
-   [`ev3_bridge.py`](ev3_backend/ev3_bridge.py). También acepta `EV3_PORT`.
+3. En el dashboard, cambia el modo a **Hardware** e introduce la IP del robot.
+   El frontend se lo comunica al puente por `POST /api/config`, así que no hace
+   falta reiniciar nada.
 
-3. Arranca el frontend con `npm run dev`.
+   Alternativa por variable de entorno al arrancar el puente:
+   `EV3_PORT=8080 python ev3_backend/ev3_bridge.py`.
+
+### Si el robot no conecta
+
+Recorre la cadena de fuera hacia dentro; el primer paso que falle es la causa:
+
+| Comprobación | Comando | Qué significa si falla |
+|---|---|---|
+| ¿Hay ruta hasta el robot? | `ping <IP-DEL-EV3>` | Subredes distintas o el EV3 no está asociado a la WiFi. |
+| ¿Está vivo ev3dev? | `ssh robot@<IP-DEL-EV3>` | El ladrillo está arrancado pero sin red, o la IP cambió. |
+| ¿Corre el servidor? | `curl http://<IP-DEL-EV3>:8080/status` | El paso 1 no está en marcha: es el fallo más habitual. |
+| ¿Apunta bien el puente? | `curl http://localhost:8000/api/status` | Sigue en modo simulado; cambia a Hardware en el dashboard. |
+
+El puente **nunca se queda colgado** si el robot desaparece: responde al
+instante con `connected: false` y reintenta cada segundo y medio.
 
 ## API
 

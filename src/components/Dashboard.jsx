@@ -1,28 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MotorPort from "./MotorPort";
 import SensorPort from "./SensorPort";
 import "./Dashboard.css";
 import KeyboardControl from "./KeyboardControl";
+import { useRobot } from "../context/RobotContext";
 
 export default function Dashboard({ status }) {
-  const [editingIp, setEditingIp] = useState(false);
-  const [ipInput, setIpInput] = useState("");
+  // Traemos las funciones y variables globales del contexto
+  const { connectionMode, targetIp, updateConnectionConfig } = useRobot();
+
+  const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [draftMode, setDraftMode] = useState(connectionMode);
+  const [draftIp, setDraftIp] = useState(targetIp);
+
+  // Mantenemos sincronizados los estados locales por si cambian externamente
+  useEffect(() => {
+    setDraftMode(connectionMode);
+    setDraftIp(targetIp);
+  }, [connectionMode, targetIp]);
 
   const ports   = ["outA", "outB", "outC", "outD"];
   const sensors = ["in1",  "in2",  "in3",  "in4"];
 
-  // La función ya no llama a Tauri, solo cierra el input visualmente
-  function applyIp() {
-    if (ipInput.trim()) {
-      console.log("[Mock Red] IP simulada cambiada a:", ipInput.trim());
-      // Aquí en el futuro enviaríamos la IP al contexto si fuera necesario
-    }
-    setEditingIp(false);
+  // Guarda la configuración y la envía al puente FastAPI
+  function applyConfig() {
+    updateConnectionConfig(draftMode, draftIp);
+    setIsEditingConfig(false);
   }
 
-  // Simulamos la reconexión
+  // Usamos el botón de reconectar para forzar la re-aplicación de la red actual
   function handleReconnect() {
-    console.log("[Mock Red] Solicitando reconexión al orquestador...");
+    console.log("[Red] Forzando reconexión...");
+    updateConnectionConfig(connectionMode, targetIp);
   }
 
   return (
@@ -33,28 +42,47 @@ export default function Dashboard({ status }) {
         <div className="status-left">
           <span className={`status-dot ${status?.connected ? "online" : "offline"}`} />
           <span>{status?.connected ? "Conectado" : "Sin conexión"}</span>
-          {editingIp ? (
-            <div className="ip-edit">
-              <input
-                autoFocus
-                value={ipInput}
-                onChange={e => setIpInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") applyIp(); if (e.key === "Escape") setEditingIp(false); }}
+          
+          {isEditingConfig ? (
+            <div className="ip-edit" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '10px' }}>
+              
+              {/* Selector de Modo */}
+              <select 
+                value={draftMode} 
+                onChange={(e) => setDraftMode(e.target.value)}
                 className="ip-input"
-                placeholder="192.168.x.x"
-              />
-              <button className="btn btn-primary" onClick={applyIp}>OK</button>
-              <button className="btn" onClick={() => setEditingIp(false)}>✕</button>
+                style={{ padding: '4px', cursor: 'pointer' }}
+              >
+                <option value="simulated">Simulador Local</option>
+                <option value="real">Hardware Real (EV3)</option>
+              </select>
+
+              {/* Input de IP (Solo visible si el modo es "real") */}
+              {draftMode === 'real' && (
+                <input
+                  autoFocus
+                  value={draftIp}
+                  onChange={e => setDraftIp(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") applyConfig(); if (e.key === "Escape") setIsEditingConfig(false); }}
+                  className="ip-input"
+                  placeholder="192.168.x.x"
+                  style={{ width: '130px' }}
+                />
+              )}
+              
+              <button className="btn btn-primary" onClick={applyConfig}>OK</button>
+              <button className="btn" onClick={() => setIsEditingConfig(false)}>✕</button>
             </div>
           ) : (
-            <span className="ip-display" onClick={() => { setIpInput(status?.ip || ""); setEditingIp(true); }}>
-              {status?.ip} <span className="ip-edit-hint">✎</span>
+            <span className="ip-display" onClick={() => { setIsEditingConfig(true); }} style={{ marginLeft: '10px' }}>
+              — {connectionMode === 'simulated' ? 'Simulador Local' : `Hardware (${targetIp})`} 
+              <span className="ip-edit-hint">✎</span>
             </span>
           )}
         </div>
+        
         <div className="status-right">
           <span className="battery">🔋 {status?.battery?.toFixed(2) ?? "—"}V</span>
-          {/* Botón desconectado de Tauri */}
           <button className="btn" onClick={handleReconnect}>Reconectar</button>
         </div>
       </div>

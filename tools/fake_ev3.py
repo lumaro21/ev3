@@ -103,8 +103,5 @@ main.SENSOR_DIR = ROOT + "/lego-sensor"
 main.BATTERY_FILE = ROOT + "/battery/voltage_now"
 
 if __name__ == "__main__":
-    import uvicorn
-
-    print("EV3 simulado escuchando en http://127.0.0.1:8080")
-    print("sysfs falso en {}".format(ROOT))
-    uvicorn.run(main.app, host="127.0.0.1", port=8080, log_level="warning")
+    print("EV3 simulado — sysfs falso en {}".format(ROOT))
+    main.serve(host="127.0.0.1", port=8080)
