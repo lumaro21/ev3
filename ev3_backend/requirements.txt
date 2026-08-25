@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+requests
+asyncssh
+python-multipart

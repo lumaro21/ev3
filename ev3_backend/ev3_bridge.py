@@ -1,34 +1,36 @@
+import asyncio
 import os
 import time
+from typing import Optional
+
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+
+try:
+    import asyncssh
+except ImportError:  # pragma: no cover - se resuelve en el entorno real del EV3
+    asyncssh = None
 
 app = FastAPI(title="EV3 Controller Bridge Real")
 
-# Estado global de configuración dinámico.
-# Sustituye a las constantes fijas EV3_IP y EV3_URL.
 config = {
     "mode": "simulated",
     "ip": "127.0.0.1",
-    "port": os.environ.get("EV3_PORT", "8080")
+    "port": os.environ.get("EV3_PORT", "8080"),
+    "ssh_port": int(os.environ.get("EV3_SSH_PORT", "22")),
+    "ssh_user": os.environ.get("EV3_SSH_USER", "robot"),
+    "ssh_password": os.environ.get("EV3_SSH_PASSWORD", "maker"),
 }
 
-TIMEOUT = 2          # segundos, para los comandos de motor
-STATUS_TIMEOUT = 1   # segundos, para el polling de telemetría
+TIMEOUT = 2
+STATUS_TIMEOUT = 1
 MOTOR_PORTS = ["outA", "outB", "outC", "outD"]
-
-# Reutilizar la conexión TCP evita rehacer el handshake 2,5 veces por segundo
 SESSION = requests.Session()
-
-# Cortacircuitos: si el robot no responde, dejamos de intentarlo durante un
-# instante. El frontend pregunta cada 400 ms y cada intento fallido cuesta
-# segundos; sin esto las peticiones se acumulan y el puente deja de responder.
-FAIL_COOLDOWN = 1.5  # segundos
-_retry_after = 0.0   # instante (monotónico) a partir del cual volver a probar
+FAIL_COOLDOWN = 1.5
+_retry_after = 0.0
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,12 +42,12 @@ app.add_middleware(
 
 
 class MotorCommand(BaseModel):
-    port: str   # Ejemplo: "A" o "outA"
-    speed: int  # Ejemplo: 50
+    port: str
+    speed: int
 
 
 class StopCommand(BaseModel):
-    port: Optional[str] = None  # None = todos los motores
+    port: Optional[str] = None
 
 
 class ConfigPayload(BaseModel):
@@ -54,24 +56,20 @@ class ConfigPayload(BaseModel):
 
 
 def get_ev3_url() -> str:
-    """Calcula la URL objetivo en tiempo real basada en la configuración actual."""
     return "http://{}:{}".format(config["ip"], config["port"])
 
 
 @app.post("/api/config")
 def update_config(payload: ConfigPayload):
-    """Recibe la nueva configuración desde el frontend (React) y cambia el objetivo."""
     global _retry_after
     config["mode"] = payload.mode
     config["ip"] = "127.0.0.1" if payload.mode == "simulated" else payload.ip
-    # Al cambiar de objetivo reintentamos de inmediato, sin esperar el cortacircuitos
     _retry_after = 0.0
     print("🔄 Modo cambiado a: '{}' | Apuntando a: {}".format(config["mode"], config["ip"]))
     return {"status": "success", "current_config": config}
 
 
 def normalize_port(port: str) -> str:
-    """Acepta "A", "outA" o "ev3-ports:outA" y devuelve siempre "outA"."""
     p = str(port).strip().split(":")[-1]
     if not p.startswith("out"):
         p = "out" + p.upper()
@@ -79,9 +77,6 @@ def normalize_port(port: str) -> str:
 
 
 def offline_status(reason: str):
-    """Estado con la forma que espera el frontend cuando el robot no responde.
-    Devolver siempre la misma estructura evita que el React reviente al
-    iterar sobre motors/sensors."""
     return {
         "connected": False,
         "ip": config["ip"],
@@ -94,7 +89,6 @@ def offline_status(reason: str):
 
 @app.post("/api/motor")
 def set_motor(command: MotorCommand):
-    """Envía el comando directamente al robot físico."""
     port = normalize_port(command.port)
     try:
         response = SESSION.post(
@@ -112,7 +106,6 @@ def set_motor(command: MotorCommand):
 
 @app.post("/api/stop_all")
 def stop_all(command: StopCommand = StopCommand()):
-    """Detiene un motor concreto, o todos los motores del robot real."""
     payload = {"motor": normalize_port(command.port)} if command.port else {}
     try:
         response = SESSION.post("{}/stop".format(get_ev3_url()), json=payload, timeout=TIMEOUT)
@@ -125,11 +118,7 @@ def stop_all(command: StopCommand = StopCommand()):
 
 @app.get("/api/status")
 def get_status():
-    """Telemetría del robot, normalizada al formato que consume el frontend."""
     global _retry_after
-
-    # Si acabamos de fallar, respondemos al instante sin tocar la red. Así el
-    # polling del frontend nunca se encola detrás de intentos que van a fallar.
     if time.monotonic() < _retry_after:
         return offline_status("Sin conexión con el robot ({})".format(config["ip"]))
 
@@ -139,15 +128,12 @@ def get_status():
         data = response.json()
         _retry_after = 0.0
     except requests.RequestException:
-        # Quitamos el print de error de estado para no hacer spam en la terminal
-        # cuando el robot físico se apaga.
         _retry_after = time.monotonic() + FAIL_COOLDOWN
         return offline_status("Sin conexión con el robot ({})".format(config["ip"]))
     except ValueError:
         _retry_after = time.monotonic() + FAIL_COOLDOWN
         return offline_status("El robot devolvió una respuesta no válida")
 
-    # Motores: garantizamos los cuatro puertos aunque el robot informe menos
     reported = {
         normalize_port(m.get("port", "")): m
         for m in data.get("motors", [])
@@ -162,7 +148,6 @@ def get_status():
             "speed": int(m.get("speed", 0)),
         })
 
-    # Sensores: solo los que el robot reporta como presentes
     sensors = [
         {
             "port": str(s.get("port", "")),
@@ -173,7 +158,6 @@ def get_status():
         if isinstance(s, dict) and s.get("port")
     ]
 
-    # Sin icono: el Dashboard ya antepone "⚠" al renderizar cada alerta
     alerts = ["Motor {} desconectado".format(m["port"]) for m in motors if not m["connected"]]
 
     return {
@@ -184,6 +168,118 @@ def get_status():
         "sensors": sensors,
         "alerts": alerts,
     }
+
+
+async def open_ssh_shell(host: str, port: int, username: str, password: str):
+    if asyncssh is None:
+        raise RuntimeError("Falta la dependencia 'asyncssh'. Instálala con: pip install asyncssh")
+
+    conn = await asyncssh.connect(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        known_hosts=None,
+        client_keys=None,
+        connect_timeout=10,
+    )
+    process = await conn.create_shell(term_type="xterm", encoding="utf-8")
+    return conn, process
+
+
+@app.websocket("/ws/terminal")
+async def terminal_websocket(websocket: WebSocket):
+    await websocket.accept()
+
+    # El destino SSH es siempre el robot configurado vía /api/config: no se
+    # aceptan credenciales por query string para no exponer la contraseña en la URL.
+    host = config["ip"]
+    port = config["ssh_port"]
+    username = config["ssh_user"]
+    password = config["ssh_password"]
+
+    try:
+        conn, process = await open_ssh_shell(host, port, username, password)
+    except Exception as exc:  # pragma: no cover - depende del robot real
+        await websocket.send_text(f"\r\n[ERROR] No se pudo abrir la sesión SSH: {exc}\r\n")
+        await websocket.close(code=1011)
+        return
+
+    async def read_from_ssh():
+        try:
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    break
+                await websocket.send_text(chunk)
+        except Exception:
+            pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+
+    reader_task = asyncio.create_task(read_from_ssh())
+
+    try:
+        while True:
+            incoming = await websocket.receive()
+            if "text" not in incoming:
+                continue
+            data = incoming["text"]
+            if not data:
+                continue
+            process.stdin.write(data)
+            await process.stdin.drain()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        reader_task.cancel()
+        try:
+            process.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.post("/api/terminal/upload")
+async def upload_terminal_script(
+    file: UploadFile = File(...),
+    remote_dir: str = Form("/home/robot"),
+):
+    if asyncssh is None:
+        raise HTTPException(status_code=503, detail="Falta la dependencia 'asyncssh' en el backend")
+
+    if not file.filename or not file.filename.lower().endswith((".py", ".sh", ".bash")):
+        raise HTTPException(status_code=400, detail="Solo se admiten archivos .py, .sh o .bash")
+
+    content = await file.read()
+    remote_path = "{}/{}".format(remote_dir.rstrip("/"), file.filename)
+
+    try:
+        async with asyncssh.connect(
+            host=config["ip"],
+            port=config["ssh_port"],
+            username=config["ssh_user"],
+            password=config["ssh_password"],
+            known_hosts=None,
+            client_keys=None,
+            connect_timeout=10,
+        ) as conn:
+            async with conn.start_sftp_client() as sftp:
+                async with sftp.open(remote_path, "wb") as remote_file:
+                    await remote_file.write(content)
+            if remote_path.lower().endswith((".sh", ".bash")):
+                await conn.run("chmod +x {}".format(remote_path))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="No se pudo subir el archivo al EV3: {}".format(exc))
+
+    print("📤 Archivo subido al EV3: {}".format(remote_path))
+    return {"status": "success", "path": remote_path}
 
 
 if __name__ == "__main__":
